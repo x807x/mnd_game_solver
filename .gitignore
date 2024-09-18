@@ -1,0 +1,6 @@
+/target
+.env
+*.aspx
+*.ashx
+*.png
+/.vscode
