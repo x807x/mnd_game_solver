@@ -1,6 +1,8 @@
 /target
+/.vscode
 .env
 *.aspx
 *.ashx
 *.png
-/.vscode
+*.js
+*.json

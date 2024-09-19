@@ -1,3 +1,4 @@
+use clap::Parser;
 use dotenv::dotenv;
 use env_logger::Env;
 use fantoccini::error::CmdError;
@@ -6,16 +7,30 @@ use ocrs::{OcrEngine, OcrEngineParams};
 use player::Player;
 use question::Question;
 use rten::Model;
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    fs::File,
+    io::{BufReader, Write},
+    path::PathBuf,
+};
 
 mod player;
 mod question;
 
-const URL: &str = "https://game.mnd.gov.tw";
-const WEBDRIVER: &str = "http://localhost:4444";
+const URL: &str = "https://game.mnd.gov.tw/gameindex.aspx";
+const LOCALHOST: &str = "http://localhost";
+const DATABASE: &str = "questions.json";
+
+#[derive(Parser, Debug)]
+struct Args {
+    /// Port used for webdriver
+    #[arg(long, default_value_t = 4444)]
+    port: u16,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), CmdError> {
+    let args = Args::parse();
     dotenv().ok();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
@@ -28,7 +43,7 @@ async fn main() -> Result<(), CmdError> {
     let mut recognition_model_path = PathBuf::from(&user_profile);
     recognition_model_path.push(".cache/ocrs/text-recognition.rten");
     let recognition_model = Model::load_file(&recognition_model_path).unwrap();
-    let mut ocr_engine = OcrEngine::new(OcrEngineParams {
+    let ocr_engine = OcrEngine::new(OcrEngineParams {
         detection_model: Some(detection_model),
         recognition_model: Some(recognition_model),
         //        alphabet: Some("0123456789".to_string()),
@@ -38,14 +53,20 @@ async fn main() -> Result<(), CmdError> {
 
     let personal_id = env::var("personal_id").unwrap();
     let mut database: Vec<Question> = Vec::new();
+    if let Ok(file) = File::open(DATABASE) {
+        let reader = BufReader::new(file);
+        database = serde_json::from_reader(reader)?;
+    }
+    let mut prev_database_len = database.len();
+
+    let webdriver = format!("{}:{}", LOCALHOST, args.port);
+    info!("Webdriver: {}", webdriver);
     let mut cnt: u128 = 0;
-    let mut player = Player::new(URL, WEBDRIVER).await?;
+    let mut player = Player::new(URL, &webdriver).await?;
+
     loop {
-        match player
-            .play(&mut ocr_engine, &mut database, &personal_id)
-            .await
-        {
-            Ok(_) => {
+        match player.play(&ocr_engine, &mut database, &personal_id).await {
+            Ok(()) => {
                 cnt += 1;
                 info!("finish {} times", cnt);
             }
@@ -55,6 +76,13 @@ async fn main() -> Result<(), CmdError> {
                     return Err(err);
                 }
             }
+        }
+
+        if database.len() > prev_database_len {
+            let json = serde_json::to_string(&database).unwrap();
+            let mut file = File::create(DATABASE)?;
+            file.write_all(json.as_bytes())?;
+            prev_database_len = database.len();
         }
     }
 }

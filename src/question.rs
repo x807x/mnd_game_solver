@@ -12,12 +12,12 @@ impl Question {
     pub async fn play(
         &mut self,
         client: &Client,
-        database: &mut Vec<Question>,
+        database: &mut Vec<Self>,
     ) -> Result<(), CmdError> {
         if let Some(ans) = database.iter_mut().find(|d| d.stem == self.stem) {
             let answer = ans.options.get(ans.answer.unwrap() as usize).unwrap();
             let mut idx = 0;
-            for option in self.options.iter() {
+            for option in &self.options {
                 if option == answer {
                     self.answer = Some(idx);
                     break;
@@ -28,7 +28,7 @@ impl Question {
                 return Ok(());
             }
         }
-        for idx in 0..self.options.len() as u8 {
+        for idx in 0..u8::try_from(self.options.len()).unwrap() {
             let result = self.try_summit(client, idx).await?;
             if result {
                 self.answer = Some(idx);
@@ -44,22 +44,18 @@ impl Question {
             .find(Locator::Id(format!("Ans{}", guess_ans + 1).as_str()))
             .await?;
         ans_button.click().await?;
-        let keep_playing_button = match client.find(Locator::Id("imgBack2")).await {
-            Ok(res) => res,
-            _ => return Ok(true),
+        let Ok(keep_playing_button) = client.find(Locator::Id("imgBack2")).await else {
+            return Ok(true);
         };
-        match keep_playing_button.click().await {
-            Ok(_) => Ok(true),
-            Err(_) => {
-                let retry_button = client.find(Locator::Id("imgBack")).await?;
-                retry_button.click().await?;
-                Ok(false)
-            }
+        if keep_playing_button.click().await.is_ok() {
+            Ok(true)
+        } else {
+            let retry_button = client.find(Locator::Id("imgBack")).await?;
+            retry_button.click().await?;
+            Ok(false)
         }
     }
-}
 
-impl Question {
     pub async fn from(client: &Client) -> Result<Self, CmdError> {
         let stem = client
             .find(Locator::Css(r#"p[class="display-5 question2"]"#))
@@ -76,7 +72,7 @@ impl Question {
             options_text.push(text);
         }
 
-        Ok(Question {
+        Ok(Self {
             stem: stem
                 .text()
                 .await?
