@@ -8,7 +8,8 @@ use tokio::time::{sleep, Sleep};
 use crate::question::Question;
 const CAPTCHA_PATH: &str = "captcha.png";
 const CD_TIME: f32 = 60.0;
-const DOWNLOAD_WAIT: f32 = 5.0;
+const DOWNLOAD_WAIT: f32 = 0.0;
+const RELOAD_WAIT: f32 = 1.0;
 
 #[derive(Clone, Debug)]
 pub struct Player {
@@ -102,7 +103,7 @@ impl Player {
         let ocr_input = ocr_engine.prepare_input(img_source).unwrap();
         let text = ocr_engine.get_text(&ocr_input).unwrap();
         let captcha_ans: String = text.chars().filter(char::is_ascii_digit).collect();
-        if captcha_ans.len() == 6 {
+        if captcha_ans.len() == 6 && text.len() == 6 {
             Ok(Some(captcha_ans))
         } else {
             info!("Bad CAPTCHA: {:?}", text);
@@ -112,7 +113,9 @@ impl Player {
 
     async fn reload_captcha(&mut self) -> Result<(), CmdError> {
         let reflash_btn = self.client.find(Locator::Id("reflash")).await?;
-        reflash_btn.click().await
+        reflash_btn.click().await?;
+        sleep(Duration::from_secs_f32(RELOAD_WAIT)).await;
+        Ok(())
     }
 
     async fn solve_captcha(&mut self, ocr_engine: &OcrEngine) -> Result<(), CmdError> {

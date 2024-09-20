@@ -1,8 +1,9 @@
+use chrono::Local;
 use clap::Parser;
+use colored::*;
 use dotenv::dotenv;
-use env_logger::Env;
 use fantoccini::error::CmdError;
-use log::{info, warn};
+use log::{info, warn, LevelFilter};
 use ocrs::{OcrEngine, OcrEngineParams};
 use player::Player;
 use question::Question;
@@ -32,7 +33,24 @@ struct Args {
 async fn main() -> Result<(), CmdError> {
     let args = Args::parse();
     dotenv().ok();
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    //    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            let time = Local::now()
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string()
+                .bright_blue();
+            let level = record.level().as_str();
+            let colored_level = match record.level().to_level_filter() {
+                LevelFilter::Info => level.green(),
+                LevelFilter::Warn => level.yellow(),
+                LevelFilter::Error => level.red(),
+                _ => level.into(),
+            };
+            writeln!(buf, "{} [{}] - {}", time, colored_level, record.args(),)
+        })
+        .filter(None, LevelFilter::Info)
+        .init();
 
     info!("Start");
 
