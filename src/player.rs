@@ -8,13 +8,13 @@ use tokio::time::{sleep, Sleep};
 
 use crate::question::Question;
 const CAPTCHA_PATH: &str = "captcha.png";
-const CD_TIME: f32 = 60.0;
 const DOWNLOAD_WAIT: f32 = 0.0;
 const RELOAD_WAIT: f32 = 0.15;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Player {
     pub url: String,
+    pub timer: Option<Sleep>,
     client: Client,
     current_question: Question,
 }
@@ -23,6 +23,7 @@ impl Player {
     pub async fn new(url: &str, webdriver: &str) -> Result<Self, CmdError> {
         let player = Self {
             url: url.to_owned(),
+            timer: None,
             client: ClientBuilder::native()
                 .connect(webdriver)
                 .await
@@ -38,7 +39,6 @@ impl Player {
         database: &mut Vec<Question>,
         personal_id: &str,
     ) -> Result<(), CmdError> {
-        let timer = sleep(Duration::from_secs_f32(CD_TIME));
         self.client.goto(&self.url).await?;
         let start_playing_btn = self
             .client
@@ -49,7 +49,7 @@ impl Player {
             self.current_question = Question::from(&self.client).await?;
             self.current_question.play(&self.client, database).await?;
         }
-        self.input_data(ocr_engine, personal_id, timer).await?;
+        self.input_data(ocr_engine, personal_id).await?;
         Ok(())
     }
 
@@ -57,13 +57,14 @@ impl Player {
         &mut self,
         ocr_engine: &OcrEngine,
         personal_id: &str,
-        timer: Sleep,
     ) -> Result<(), CmdError> {
         let personal_id_block = self.client.find(Locator::Id("PID")).await?;
         personal_id_block.send_keys(personal_id).await?;
 
-        self.input_captcha(ocr_engine, true).await?;
-        timer.await;
+        self.input_captcha(ocr_engine, self.timer.is_some()).await?;
+        if let Some(timer) = self.timer.take() {
+            timer.await;
+        }
         while !self.confirm_captcha().await? {
             self.reload_captcha().await?;
             self.input_captcha(ocr_engine, false).await?;

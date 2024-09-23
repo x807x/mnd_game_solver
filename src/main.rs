@@ -1,20 +1,19 @@
-use chrono::Local;
+use chrono::{Local, SecondsFormat};
 use clap::Parser;
 use colored::*;
 use dotenv::dotenv;
-use fantoccini::error::CmdError;
+use fantoccini::error::{CmdError, ErrorStatus};
 use log::{info, warn, LevelFilter};
 use ocrs::{OcrEngine, OcrEngineParams};
 use player::Player;
 use question::Question;
 use rten::Model;
-use std::{
-    env,
-    fs::File,
-    io::{BufReader, Write},
-    path::PathBuf,
+use std::{env, fs::File, io::Write, path::PathBuf, time::Duration};
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+    time::sleep,
 };
-
 mod player;
 mod question;
 
@@ -25,8 +24,29 @@ const DATABASE: &str = "questions.json";
 #[derive(Parser, Debug)]
 struct Args {
     /// Port used for webdriver
-    #[arg(long, default_value_t = 4444)]
+    #[arg(long, short, default_value_t = 4444)]
     port: u16,
+
+    #[arg(long, short)]
+    cd_time: Option<f32>,
+}
+
+async fn run_geckodriver(args: &Args) {
+    let mut child = Command::new("geckodriver.exe")
+        .arg(format!("--port={}", args.port))
+        .spawn()
+        .expect("failed to execute process");
+
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = lines.next_line().await {
+                info!("geckodriver: {}", line);
+            }
+        });
+    }
 }
 
 #[tokio::main]
@@ -37,8 +57,8 @@ async fn main() -> Result<(), CmdError> {
     env_logger::Builder::new()
         .format(|buf, record| {
             let time = Local::now()
-                .format("%Y-%m-%dT%H:%M:%S")
-                .to_string()
+                .to_rfc3339_opts(SecondsFormat::Millis, true)
+                .as_str()
                 .bright_blue();
             let level = record.level().as_str();
             let colored_level = match record.level().to_level_filter() {
@@ -51,6 +71,7 @@ async fn main() -> Result<(), CmdError> {
         })
         .filter(None, LevelFilter::Info)
         .init();
+    run_geckodriver(&args).await;
 
     info!("{}", "Start".green());
 
@@ -72,7 +93,7 @@ async fn main() -> Result<(), CmdError> {
     let personal_id = env::var("personal_id").unwrap();
     let mut database: Vec<Question> = Vec::new();
     if let Ok(file) = File::open(DATABASE) {
-        let reader = BufReader::new(file);
+        let reader = std::io::BufReader::new(file);
         database = serde_json::from_reader(reader)?;
     }
     let mut prev_database_len = database.len();
@@ -85,15 +106,39 @@ async fn main() -> Result<(), CmdError> {
     loop {
         match player.play(&ocr_engine, &mut database, &personal_id).await {
             Ok(()) => {
+                player.timer = match args.cd_time {
+                    Some(cd_time) => Some(sleep(Duration::from_secs_f32(cd_time))),
+                    None => None,
+                };
                 cnt += 1;
                 info!("{}", format!("finish {} times", cnt).green());
             }
-            Err(err) => {
-                warn!("Failed: {}", err);
-                if err.to_string() == "Tried to run command without establishing a connection" {
-                    return Err(err);
+            Err(err) => match err {
+                CmdError::WaitTimeout => {
+                    continue;
                 }
-            }
+                CmdError::Standard(err) => match &err.error {
+                    ErrorStatus::Timeout => {}
+                    ErrorStatus::NoSuchElement => {}
+                    ErrorStatus::InvalidSessionId => {
+                        continue;
+                    }
+                    ErrorStatus::ElementNotInteractable => {
+                        info!(
+                            "Element {} Not Interactable",
+                            err.message
+                                .replace("Element ", "")
+                                .replace(" could not be scrolled into view", "")
+                        );
+                    }
+                    _ => {
+                        warn!("Failed: {:?}", err);
+                    }
+                },
+                _ => {
+                    warn!("Failed: {:?}", err);
+                }
+            },
         }
 
         if database.len() > prev_database_len {
