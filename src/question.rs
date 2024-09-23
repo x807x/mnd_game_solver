@@ -1,4 +1,5 @@
 use fantoccini::{error::CmdError, Client, Locator};
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -29,8 +30,7 @@ impl Question {
             }
         }
         for idx in 0..u8::try_from(self.options.len()).unwrap() {
-            let result = self.try_summit(client, idx).await?;
-            if result {
+            if self.try_summit(client, idx).await? {
                 self.answer = Some(idx);
                 break;
             }
@@ -57,9 +57,16 @@ impl Question {
     }
 
     pub async fn from(client: &Client) -> Result<Self, CmdError> {
-        let stem = client
+        let stem = match client
             .find(Locator::Css(r#"p[class="display-5 question2"]"#))
-            .await?;
+            .await
+        {
+            Ok(stem) => stem,
+            Err(err) => {
+                warn!("Error: {}", err);
+                return Err(err);
+            }
+        };
 
         let options = client
             .find_all(Locator::Css(

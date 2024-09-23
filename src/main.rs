@@ -52,7 +52,7 @@ async fn main() -> Result<(), CmdError> {
         .filter(None, LevelFilter::Info)
         .init();
 
-    info!("Start");
+    info!("{}", "Start".green());
 
     let user_profile = env::var("USERPROFILE").unwrap();
     let mut detection_model_path = PathBuf::from(&user_profile);
@@ -86,7 +86,7 @@ async fn main() -> Result<(), CmdError> {
         match player.play(&ocr_engine, &mut database, &personal_id).await {
             Ok(()) => {
                 cnt += 1;
-                info!("finish {} times", cnt);
+                info!("{}", format!("finish {} times", cnt).green());
             }
             Err(err) => {
                 warn!("Failed: {}", err);

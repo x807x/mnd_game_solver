@@ -6,3 +6,4 @@
 *.png
 *.js
 *.json
+!questions.json
