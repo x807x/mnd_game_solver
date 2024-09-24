@@ -21,7 +21,11 @@ cargo install ocrs
 ocrs captcha.png
 ```
 
-5. Run this program
+5. Setup `.env`
+```
+personal_id="YOUR_PERSONAL_ID" 
+```
+6. Run this program
 ``` ps1
 cargo run --release -- --port 4445 -c 15
 ```
