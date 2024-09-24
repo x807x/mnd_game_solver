@@ -7,7 +7,6 @@ use ocrs::{ImageSource, OcrEngine};
 use tokio::time::{sleep, Sleep};
 
 use crate::question::Question;
-const CAPTCHA_PATH: &str = "captcha.png";
 const DOWNLOAD_WAIT: f32 = 0.0;
 const RELOAD_WAIT: f32 = 0.15;
 
@@ -61,54 +60,61 @@ impl Player {
         let personal_id_block = self.client.find(Locator::Id("PID")).await?;
         personal_id_block.send_keys(personal_id).await?;
 
-        self.input_captcha(ocr_engine, self.timer.is_some()).await?;
+        self.input_captcha(ocr_engine).await?;
         if let Some(timer) = self.timer.take() {
             timer.await;
         }
         while !self.confirm_captcha().await? {
             self.reload_captcha().await?;
-            self.input_captcha(ocr_engine, false).await?;
+            self.input_captcha(ocr_engine).await?;
         }
 
         Ok(())
     }
 
-    async fn input_captcha(
-        &mut self,
-        ocr_engine: &OcrEngine,
-        strict: bool,
-    ) -> Result<(), CmdError> {
+    async fn input_captcha(&mut self, ocr_engine: &OcrEngine) -> Result<(), CmdError> {
         info!("Start solving CAPTCHA");
-        self.solve_captcha(ocr_engine, strict).await
+        self.solve_captcha(ocr_engine).await
     }
 
-    async fn download_captcha_img(&mut self) -> Result<(), CmdError> {
+    async fn download_captcha_img(&mut self) -> Result<Vec<u8>, CmdError> {
         let captcha_img = self.client.find(Locator::Id("CAPTCHAImage")).await?;
         let img = captcha_img.screenshot().await?;
 
-        std::fs::write(CAPTCHA_PATH, img.clone()).unwrap();
         sleep(Duration::from_secs_f32(DOWNLOAD_WAIT)).await;
-        Ok(())
+        Ok(img)
     }
 
-    async fn captcha_ocr(
-        &mut self,
-        ocr_engine: &OcrEngine,
-        strict: bool,
-    ) -> Result<Option<String>, CmdError> {
-        let image = match image::open(CAPTCHA_PATH) {
-            Ok(image) => image.to_rgb8(),
+    async fn captcha_ocr(&mut self, ocr_engine: &OcrEngine) -> Result<Option<String>, CmdError> {
+        let image_data = match self.download_captcha_img().await {
+            Ok(data) => data,
             Err(err) => {
-                warn!("Image err: {}", err);
-                self.download_captcha_img().await?;
+                warn!("Image download error: {}", err);
                 return Ok(None);
             }
         };
+
+        // Load the image from the in-memory data
+        let image = match image::load_from_memory(&image_data) {
+            Ok(image) => image.to_rgb8(),
+            Err(err) => {
+                warn!("Image load error: {}", err);
+                return Ok(None);
+            }
+        };
+
         let img_source = ImageSource::from_bytes(image.as_raw(), image.dimensions()).unwrap();
         let ocr_input = ocr_engine.prepare_input(img_source).unwrap();
         let text = ocr_engine.get_text(&ocr_input).unwrap();
         let captcha_ans: String = text.chars().filter(char::is_ascii_digit).collect();
-        if captcha_ans.len() == 6 && (text.len() == 6 || !strict) {
+
+        let elapsed = if let Some(timer) = &self.timer {
+            timer.is_elapsed()
+        } else {
+            true
+        };
+
+        if captcha_ans.len() == 6 && (text.len() == 6 || elapsed) {
             Ok(Some(captcha_ans))
         } else {
             info!("Bad CAPTCHA: {:?}", text);
@@ -123,14 +129,10 @@ impl Player {
         Ok(())
     }
 
-    async fn solve_captcha(
-        &mut self,
-        ocr_engine: &OcrEngine,
-        strict: bool,
-    ) -> Result<(), CmdError> {
+    async fn solve_captcha(&mut self, ocr_engine: &OcrEngine) -> Result<(), CmdError> {
         loop {
             self.download_captcha_img().await?;
-            if let Some(ans) = self.captcha_ocr(ocr_engine, strict).await? {
+            if let Some(ans) = self.captcha_ocr(ocr_engine).await? {
                 info!("Captcha ans: {}", ans);
                 let captcha_input = self.client.find(Locator::Id("txtValidateCode")).await?;
                 captcha_input.clear().await?;

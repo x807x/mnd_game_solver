@@ -1,6 +1,6 @@
 use chrono::{Local, SecondsFormat};
 use clap::Parser;
-use colored::*;
+use colored::Colorize;
 use dotenv::dotenv;
 use fantoccini::error::{CmdError, ErrorStatus};
 use log::{info, warn, LevelFilter};
@@ -22,16 +22,18 @@ const LOCALHOST: &str = "http://localhost";
 const DATABASE: &str = "questions.json";
 
 #[derive(Parser, Debug)]
+#[command(version, about=format!("<{}> game solver", URL))]
 struct Args {
     /// Port used for webdriver
     #[arg(long, short, default_value_t = 4444)]
     port: u16,
 
+    /// CD time between submitting
     #[arg(long, short)]
     cd_time: Option<f32>,
 }
 
-async fn run_geckodriver(args: &Args) {
+fn run_geckodriver(args: &Args) {
     let mut child = Command::new("geckodriver.exe")
         .arg(format!("--port={}", args.port))
         .spawn()
@@ -51,9 +53,9 @@ async fn run_geckodriver(args: &Args) {
 
 #[tokio::main]
 async fn main() -> Result<(), CmdError> {
-    let args = Args::parse();
     dotenv().ok();
-    //    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    let args = Args::parse();
+
     env_logger::Builder::new()
         .format(|buf, record| {
             let time = Local::now()
@@ -71,9 +73,9 @@ async fn main() -> Result<(), CmdError> {
         })
         .filter(None, LevelFilter::Info)
         .init();
-    run_geckodriver(&args).await;
+    run_geckodriver(&args);
 
-    info!("{}", "Start".green());
+    info!("{}\n{:#?}", "Start with args".green(), args);
 
     let user_profile = env::var("USERPROFILE").unwrap();
     let mut detection_model_path = PathBuf::from(&user_profile);
@@ -106,25 +108,27 @@ async fn main() -> Result<(), CmdError> {
     loop {
         match player.play(&ocr_engine, &mut database, &personal_id).await {
             Ok(()) => {
-                player.timer = match args.cd_time {
-                    Some(cd_time) => Some(sleep(Duration::from_secs_f32(cd_time))),
-                    None => None,
-                };
+                player.timer = args
+                    .cd_time
+                    .map(|cd_time| sleep(Duration::from_secs_f32(cd_time)));
                 cnt += 1;
-                info!("{}", format!("finish {} times", cnt).green());
+                info!("{}", format!("finish {cnt} times").green());
             }
             Err(err) => match err {
                 CmdError::WaitTimeout => {
                     continue;
                 }
                 CmdError::Standard(err) => match &err.error {
-                    ErrorStatus::Timeout => {}
-                    ErrorStatus::NoSuchElement => {}
+                    ErrorStatus::Timeout | ErrorStatus::NoSuchElement => {}
                     ErrorStatus::InvalidSessionId => {
-                        continue;
+                        warn!("Invalid Session Id: {}", err.message);
+                    }
+                    ErrorStatus::NoSuchWindow => {
+                        warn!("FireFox is closed!");
+                        run_geckodriver(&args);
                     }
                     ErrorStatus::ElementNotInteractable => {
-                        info!(
+                        warn!(
                             "Element {} Not Interactable",
                             err.message
                                 .replace("Element ", "")
