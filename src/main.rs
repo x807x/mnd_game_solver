@@ -17,7 +17,7 @@ use tokio::{
 mod player;
 mod question;
 
-const URL: &str = "https://game.mnd.gov.tw/gameindex.aspx";
+const URL: &str = "https://gpwd.mnd.gov.tw/reward/gameindex.aspx";
 const LOCALHOST: &str = "http://localhost";
 const DATABASE: &str = "questions.json";
 
@@ -34,8 +34,10 @@ struct Args {
 }
 
 fn run_geckodriver(args: &Args) {
-    let mut child = Command::new("geckodriver.exe")
+    let mut child = Command::new("geckodriver")
         .arg(format!("--port={}", args.port))
+        .arg("--log")
+        .arg("fatal")
         .spawn()
         .expect("failed to execute process");
 

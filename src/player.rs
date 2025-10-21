@@ -41,7 +41,7 @@ impl Player {
         self.client.goto(&self.url).await?;
         let start_playing_btn = self
             .client
-            .find(Locator::Css(r#"img[class="img-fluid mt-sm-3"]"#))
+            .find(Locator::Css(r#"img[class="img-fluid mt-sm-1"]"#))
             .await?;
         start_playing_btn.click().await?;
         for _ in 0..9 {

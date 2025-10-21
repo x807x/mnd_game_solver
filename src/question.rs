@@ -1,5 +1,5 @@
 use fantoccini::{error::CmdError, Client, Locator};
-use log::warn;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -36,6 +36,7 @@ impl Question {
             }
         }
         database.push(self.clone());
+        info!("Adding new Question {:?}", self);
 
         Ok(())
     }
